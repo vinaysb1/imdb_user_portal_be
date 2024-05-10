@@ -90,71 +90,6 @@ app.get('/api/public/movies', async (req, res) => {
         res.status(500).json({ success: false, error: 'Internal Server Error' });
     }
 });
-// GET endpoint to fetch a movie by its ID
-app.get('/api/public/movies/:movieId', async (req, res) => {
-    try {
-        const movieId = req.params?.movieId;
-        if (!movieId) {
-            // If no movie is found with the provided ID, return a 404 response
-            return res.status(404).json({ success: false, error: 'Movie id missing' });
-        }
-        // Query to fetch the movie details by ID
-        const query = `
-            SELECT m.*, COALESCE(CAST(AVG(r.rating) AS NUMERIC(10, 2)), 0) AS rating
-            FROM movies m
-            LEFT JOIN movie_ratings r ON m.id = r.movie_id
-            WHERE m.id = $1
-            GROUP BY m.id
-        `;
-
-        // Execute the query to fetch the movie details
-        const result = await client.query(query, [movieId]);
-
-        if (result.rows.length === 0) {
-            // If no movie is found with the provided ID, return a 404 response
-            return res.status(404).json({ success: false, error: 'Movie not found' });
-        }
-
-        // Return the movie details with its average rating
-        const movie = result.rows[0];
-        res.status(200).json({ success: true, movie });
-    } catch (error) {
-        console.error('Error fetching movie:', error);
-        res.status(500).json({ success: false, error: 'Internal Server Error' });
-    }
-});
-
-// GET endpoint to fetch a user's rating for a specific movie
-app.get('/api/user/:userId/ratings/:movieId', async (req, res) => {
-    try {
-        // Extract user ID and movie ID from request parameters
-        const userId = req.params.userId;
-        const movieId = req.params.movieId;
-
-        // Query the database to fetch the user's rating for the specified movie
-        const query = `
-            SELECT rating
-            FROM movie_ratings
-            WHERE user_id = $1 AND movie_id = $2
-        `;
-        const result = await client.query(query, [userId, movieId]);
-
-        // Check if a rating was found
-        if (result.rows.length === 0) {
-            // If no rating was found, return a 404 Not Found status
-            return res.status(404).json({ success: false, error: 'Rating not found' });
-        }
-
-        // Extract the rating from the query result
-        const rating = result.rows[0].rating;
-
-        // Return the rating in the response
-        res.status(200).json({ success: true, rating });
-    } catch (error) {
-        console.error('Error fetching user rating:', error);
-        res.status(500).json({ success: false, error: 'Internal Server Error' });
-    }
-});
 
 // POST endpoint for user registration (signup)
 app.post('/api/signup', async (req, res) => {
@@ -210,7 +145,8 @@ app.post('/api/login', async (req, res) => {
     }
 });
 
-// POST endpoint to add or update a rating for a movie
+
+// POST endpoint to add a rating to a movie
 app.post('/api/movies/:movieId/rating', verifyToken, async (req, res) => {
     try {
         const { movieId } = req.params;
@@ -222,46 +158,14 @@ app.post('/api/movies/:movieId/rating', verifyToken, async (req, res) => {
             return res.status(400).json({ success: false, error: 'Invalid rating. Rating must be an integer between 1 and 5.' });
         }
 
-        // Check if the user has already rated the movie
-        const existingRatingQuery = 'SELECT * FROM movie_ratings WHERE movie_id = $1 AND user_id = $2';
-        const existingRatingResult = await client.query(existingRatingQuery, [movieId, userId]);
+        // Insert the rating into the movie_ratings table
+        const query = 'INSERT INTO movie_ratings (movie_id, user_id, rating) VALUES ($1, $2, $3) RETURNING *';
+        const result = await client.query(query, [movieId, userId, rating]);
 
-        if (existingRatingResult.rows.length > 0) {
-            // User has already rated the movie, update the existing rating
-            const updateRatingQuery = 'UPDATE movie_ratings SET rating = $1 WHERE movie_id = $2 AND user_id = $3 RETURNING *';
-            const updateRatingResult = await client.query(updateRatingQuery, [rating, movieId, userId]);
-            const updatedRating = updateRatingResult.rows[0];
-            return res.status(200).json({ success: true, rating: updatedRating });
-        }
-
-        // Insert a new rating into the movie_ratings table
-        const insertRatingQuery = 'INSERT INTO movie_ratings (movie_id, user_id, rating) VALUES ($1, $2, $3) RETURNING *';
-        const insertRatingResult = await client.query(insertRatingQuery, [movieId, userId, rating]);
-        const newRating = insertRatingResult.rows[0];
+        const newRating = result.rows[0];
         res.status(201).json({ success: true, rating: newRating });
     } catch (error) {
-        console.error('Error adding or updating rating:', error);
-        res.status(500).json({ success: false, error: 'Internal Server Error' });
-    }
-});
-// GET endpoint to fetch user ratings for movies
-app.get('/api/user/:userId/ratings', verifyToken, async (req, res) => {
-    try {
-        const { userId } = req.params;
-
-        // Fetch user ratings from the database based on the userId
-        const query = 'SELECT movie_id, rating FROM movie_ratings WHERE user_id = $1';
-        const result = await client.query(query, [userId]);
-
-        // Convert the result into an object where movie_id is the key and rating is the value
-        const userRatings = {};
-        result.rows.forEach((row) => {
-            userRatings[row.movie_id] = row.rating;
-        });
-
-        res.status(200).json({ success: true, ratings: userRatings });
-    } catch (error) {
-        console.error('Error fetching user ratings:', error);
+        console.error('Error adding rating:', error);
         res.status(500).json({ success: false, error: 'Internal Server Error' });
     }
 });
