@@ -91,6 +91,72 @@ app.get('/api/public/movies', async (req, res) => {
     }
 });
 
+// GET endpoint to fetch a movie by its ID
+app.get('/api/public/movies/:movieId', async (req, res) => {
+    try {
+        const movieId = req.params?.movieId;
+        if (!movieId) {
+            // If no movie is found with the provided ID, return a 404 response
+            return res.status(404).json({ success: false, error: 'Movie id missing' });
+        }
+        // Query to fetch the movie details by ID
+        const query = `
+            SELECT m.*, COALESCE(CAST(AVG(r.rating) AS NUMERIC(10, 2)), 0) AS rating
+            FROM movies m
+            LEFT JOIN movie_ratings r ON m.id = r.movie_id
+            WHERE m.id = $1
+            GROUP BY m.id
+        `;
+
+        // Execute the query to fetch the movie details
+        const result = await client.query(query, [movieId]);
+
+        if (result.rows.length === 0) {
+            // If no movie is found with the provided ID, return a 404 response
+            return res.status(404).json({ success: false, error: 'Movie not found' });
+        }
+
+        // Return the movie details with its average rating
+        const movie = result.rows[0];
+        res.status(200).json({ success: true, movie });
+    } catch (error) {
+        console.error('Error fetching movie:', error);
+        res.status(500).json({ success: false, error: 'Internal Server Error' });
+    }
+});
+
+// GET endpoint to fetch a user's rating for a specific movie
+app.get('/api/user/:userId/ratings/:movieId', async (req, res) => {
+    try {
+        // Extract user ID and movie ID from request parameters
+        const userId = req.params.userId;
+        const movieId = req.params.movieId;
+
+        // Query the database to fetch the user's rating for the specified movie
+        const query = `
+            SELECT rating
+            FROM movie_ratings
+            WHERE user_id = $1 AND movie_id = $2
+        `;
+        const result = await client.query(query, [userId, movieId]);
+
+        // Check if a rating was found
+        if (result.rows.length === 0) {
+            // If no rating was found, return a 404 Not Found status
+            return res.status(404).json({ success: false, error: 'Rating not found' });
+        }
+
+        // Extract the rating from the query result
+        const rating = result.rows[0].rating;
+
+        // Return the rating in the response
+        res.status(200).json({ success: true, rating });
+    } catch (error) {
+        console.error('Error fetching user rating:', error);
+        res.status(500).json({ success: false, error: 'Internal Server Error' });
+    }
+});
+
 // POST endpoint for user registration (signup)
 app.post('/api/signup', async (req, res) => {
     try {
